@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
 
 func initScheme() *runtime.Scheme {
@@ -23,8 +23,12 @@ func initScheme() *runtime.Scheme {
 }
 
 func TestDoesNamespaceExist(t *testing.T) {
+	testEnv := envtest.Environment{}
+	cfg, err := testEnv.Start()
+	assert.NoError(t, err)
 	scheme := initScheme()
-	fakeClient := fake.NewFakeClientWithScheme(scheme)
+	fakeClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	assert.NoError(t, err)
 	//test exist namespace
 	mockNamespaceName := "test-ns"
 	mockNamespaceObject := &corev1.Namespace{
@@ -32,7 +36,7 @@ func TestDoesNamespaceExist(t *testing.T) {
 			Name: mockNamespaceName,
 		},
 	}
-	err := fakeClient.Create(context.Background(), mockNamespaceObject, &client.CreateOptions{})
+	err = fakeClient.Create(context.Background(), mockNamespaceObject, &client.CreateOptions{})
 	assert.NoError(t, err)
 	exist, err := DoesNamespaceExist(fakeClient, mockNamespaceName)
 	assert.NoError(t, err)
@@ -42,18 +46,24 @@ func TestDoesNamespaceExist(t *testing.T) {
 	exist, err = DoesNamespaceExist(fakeClient, "not-exist-ns")
 	assert.NoError(t, err)
 	assert.Equal(t, false, exist)
+	err = testEnv.Stop()
+	assert.NoError(t, err)
 }
 
 func TestDoesCRDExist(t *testing.T) {
+	testEnv := envtest.Environment{}
+	cfg, err := testEnv.Start()
+	assert.NoError(t, err)
 	scheme := initScheme()
-	fakeClient := fake.NewFakeClientWithScheme(scheme)
+	fakeClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	assert.NoError(t, err)
 	//test crd exist
 	mockCRD := &apiextensions.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "crd-exist",
 		},
 	}
-	err := fakeClient.Create(context.Background(), mockCRD, &client.CreateOptions{})
+	err = fakeClient.Create(context.Background(), mockCRD, &client.CreateOptions{})
 	assert.NoError(t, err)
 	exist, err := DoesCRDExist(context.Background(), fakeClient, "crd-exist")
 	assert.NoError(t, err)
@@ -63,4 +73,6 @@ func TestDoesCRDExist(t *testing.T) {
 	exist, err = DoesCRDExist(context.Background(), fakeClient, "not-exist-crd")
 	assert.NoError(t, err)
 	assert.Equal(t, false, exist)
+	err = testEnv.Stop()
+	assert.NoError(t, err)
 }
