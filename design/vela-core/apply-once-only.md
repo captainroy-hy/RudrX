@@ -127,3 +127,7 @@ Since discrepancy is found, vela-core controller will apply(update) the Deployme
 Thus, the changes we made to the Deployment before will also be eliminated.
 
 The same mechanism also works for Trait as well as Workload.
+
+## Apply Once Only Force
+
+Based on the same mechanism as `apply-once-only`, `apply-once-only-force` allows to skip creating a workload that has already been DELETED from the cluster if its spec is not changed. `apply-once-only-force` is disabled by default.

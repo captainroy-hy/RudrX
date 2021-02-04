@@ -439,6 +439,9 @@ type WorkloadStatus struct {
 	// ComponentRevisionName of current component
 	ComponentRevisionName string `json:"componentRevisionName,omitempty"`
 
+	// ObservedGeneration indicates the generation observed by the appconfig controller.
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
 	// Reference to a workload created by an ApplicationConfiguration.
 	Reference runtimev1alpha1.TypedReference `json:"workloadRef,omitempty"`
 

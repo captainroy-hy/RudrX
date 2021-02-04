@@ -386,6 +386,10 @@ spec:
                   componentRevisionName:
                     description: ComponentRevisionName of current component
                     type: string
+                  observedGeneration:
+                    description: ObservedGeneration indicates the generation observed by the appconfig controller.
+                    format: int64
+                    type: integer
                   scopes:
                     description: Scopes associated with this workload.
                     items:
