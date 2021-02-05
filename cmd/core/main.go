@@ -98,7 +98,7 @@ func main() {
 		"RevisionLimit is the maximum number of revisions that will be maintained. The default value is 50.")
 	flag.StringVar(&healthAddr, "health-addr", ":9440", "The address the health endpoint binds to.")
 	flag.StringVar(&applyOnceOnly, "apply-once-only", "false",
-		"For the purpose of some production environment that workload or trait should not be affected if no spec change")
+		"For the purpose of some production environment that workload or trait should not be affected if no spec change, available options: on, off, force.")
 	flag.StringVar(&controllerArgs.CustomRevisionHookURL, "custom-revision-hook-url", "",
 		"custom-revision-hook-url is a webhook url which will let KubeVela core to call with applicationConfiguration and component info and return a customized component revision")
 	flag.StringVar(&disableCaps, "disable-caps", "", "To be disabled builtin capability list.")
@@ -179,7 +179,7 @@ func main() {
 	default:
 		setupLog.Error(fmt.Errorf("invalid apply-once-only value: %s", applyOnceOnly),
 			"unable to setup the vela core controller",
-			"valid apply-once-only value:", "true/false/on/off/force ")
+			"valid apply-once-only value:", "on/off/force, by default it's off")
 		os.Exit(1)
 	}
 

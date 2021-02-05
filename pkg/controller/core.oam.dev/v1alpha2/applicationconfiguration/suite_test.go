@@ -30,7 +30,6 @@ import (
 
 	core "github.com/oam-dev/kubevela/apis/core.oam.dev"
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1alpha2"
-	core_oam_dev "github.com/oam-dev/kubevela/pkg/controller/core.oam.dev"
 	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	"github.com/oam-dev/kubevela/pkg/oam/util"
 	// +kubebuilder:scaffold:imports
@@ -151,9 +150,7 @@ var _ = BeforeSuite(func(done Done) {
 	}, time.Second*30, time.Millisecond*500).Should(BeNil())
 	Expect(mapping.Resource.Resource).Should(Equal("foo"))
 
-	reconciler = NewReconciler(mgr, dm,
-		WithLogger(logging.NewLogrLogger(ctrl.Log.WithName("suit-test-appconfig"))),
-		WithApplyOnceOnlyMode(core_oam_dev.ApplyOnceOnlyOff))
+	reconciler = NewReconciler(mgr, dm, WithLogger(logging.NewLogrLogger(ctrl.Log.WithName("suit-test-appconfig"))))
 	componentHandler = &ComponentHandler{Client: k8sClient, RevisionLimit: 100, Logger: logging.NewLogrLogger(ctrl.Log.WithName("component-handler"))}
 
 	By("Creating workload definition and trait definition")

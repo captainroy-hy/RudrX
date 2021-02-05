@@ -200,11 +200,12 @@ func NewReconciler(m ctrl.Manager, dm discoverymapper.DiscoveryMapper, o ...Reco
 			rawClient:  m.GetClient(),
 			dm:         dm,
 		},
-		gc:        GarbageCollectorFn(eligible),
-		log:       logging.NewNopLogger(),
-		record:    event.NewNopRecorder(),
-		preHooks:  make(map[string]ControllerHooks),
-		postHooks: make(map[string]ControllerHooks),
+		gc:                GarbageCollectorFn(eligible),
+		log:               logging.NewNopLogger(),
+		record:            event.NewNopRecorder(),
+		preHooks:          make(map[string]ControllerHooks),
+		postHooks:         make(map[string]ControllerHooks),
+		applyOnceOnlyMode: core.ApplyOnceOnlyOff,
 	}
 
 	for _, ro := range o {
@@ -575,7 +576,7 @@ func (e *GenerationUnchanged) Error() string {
 }
 
 // applyOnceOnly is an ApplyOption that controls the applying mechanism for workload and trait.
-// More detail refers to ApplyOnceOnlyMode
+// More detail refers to the ApplyOnceOnlyMode type annotation
 func applyOnceOnly(ac *v1alpha2.ApplicationConfiguration, mode core.ApplyOnceOnlyMode) apply.ApplyOption {
 	return func(_ context.Context, existing, desired runtime.Object) error {
 		if mode == core.ApplyOnceOnlyOff {
@@ -588,49 +589,49 @@ func applyOnceOnly(ac *v1alpha2.ApplicationConfiguration, mode core.ApplyOnceOnl
 				desired.GetObjectKind().GroupVersionKind())
 		}
 		dLabels := d.GetLabels()
-		if dLabels[oam.LabelOAMResourceType] != oam.ResourceTypeWorkload &&
-			dLabels[oam.LabelOAMResourceType] != oam.ResourceTypeTrait {
-			// if target resource is not a workload nor trait
-			// skip this option
-			return nil
-		}
+		dAnnots := d.GetAnnotations()
 
 		// the resource doesn't exist (maybe not created before, or created but deleted by others)
 		if existing == nil {
 			if mode != core.ApplyOnceOnlyForce {
-				// under non-force mode, always create the resource if not exist.
+				// non-force mode will always create the resource if not exist.
 				return nil
 			}
 
 			createdBefore := false
 			for _, w := range ac.Status.Workloads {
+				// traverse recorded workloads to find the one matching applied resource
 				if w.Reference.GetObjectKind().GroupVersionKind() == desired.GetObjectKind().GroupVersionKind() &&
 					w.Reference.Name == d.GetName() {
-					// a recorded workload matched target resource
+					// the workload matches applied resource
 					createdBefore = true
 				}
 				if !createdBefore {
+					// the workload is not matched, then traverse its traits to find matching one
 					for _, t := range w.Traits {
 						if t.Reference.GetObjectKind().GroupVersionKind() == desired.GetObjectKind().GroupVersionKind() &&
 							t.Reference.Name == d.GetName() {
-							// a recorded trait matched target resource
+							// the trait matches applied resource
 							createdBefore = true
 						}
 					}
 				}
+				// don't use if-else here because it will miss the case that the resource is a trait
 				if createdBefore {
-					// appconfig status recorded a matched reference, that means the resource is created before
-					if (strconv.Itoa(int(w.ObservedGeneration)) != d.GetAnnotations()[oam.AnnotationAppGeneration]) ||
+					// the resource was created before and appconfig status recorded the resource version applied
+					// if recored ObservedGeneration and ComponentRevisionName both equal to the applied resource's,
+					// that means its spec is not changed
+					if (strconv.Itoa(int(w.ObservedGeneration)) != dAnnots[oam.AnnotationAppGeneration]) ||
 						(w.ComponentRevisionName != dLabels[oam.LabelAppComponentRevision]) {
-						// appconfig generation or component revision is changed, so create the resource
+						// its spec is changed, so re-create the resource
 						return nil
 					}
-					// ac spec and comp revision both are not changed
-					// return an error to abort creating it
+					// its spec is not changed, so return an error to abort creating it
 					return &GenerationUnchanged{}
 				}
 			}
-			// the resource is not created before, so create it
+			// no recorded workloads nor traits matches the applied resource
+			// that means the resource is not created before, so create it
 			return nil
 		}
 
@@ -641,13 +642,14 @@ func applyOnceOnly(ac *v1alpha2.ApplicationConfiguration, mode core.ApplyOnceOnl
 				existing.GetObjectKind().GroupVersionKind())
 		}
 		eLabels := e.GetLabels()
-		if (e.GetAnnotations()[oam.AnnotationAppGeneration] != d.GetAnnotations()[oam.AnnotationAppGeneration]) ||
+		// if existing reource's (observed)AppConfigGeneration and ComponentRevisionName both equal to the applied one's,
+		// that means its spec is not changed
+		if (e.GetAnnotations()[oam.AnnotationAppGeneration] != dAnnots[oam.AnnotationAppGeneration]) ||
 			(eLabels[oam.LabelAppComponentRevision] != dLabels[oam.LabelAppComponentRevision]) {
-			// appconfig generation or component revision is changed, so create the resource
+			// its spec is changed, so apply new configuration to it
 			return nil
 		}
-		// appconfig generation and component revision are not changed
-		// return an error to abort applying it
+		// its spec is not changed, return an error to abort applying it
 		return &GenerationUnchanged{}
 	}
 }

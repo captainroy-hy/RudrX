@@ -440,6 +440,10 @@ type WorkloadStatus struct {
 	ComponentRevisionName string `json:"componentRevisionName,omitempty"`
 
 	// ObservedGeneration indicates the generation observed by the appconfig controller.
+	// The same field is also recorded in the annotations of workloads.
+	// A workload is possible to be deleted from cluster after created.
+	// This field is useful to track the observed generation of workloads after they are
+	// deleted.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// Reference to a workload created by an ApplicationConfiguration.
