@@ -48,6 +48,9 @@ func LoadTemplate(cli client.Reader, key string, kd types.CapType) (*Template, e
 		if wd.Annotations["type"] == string(types.TerraformCategory) {
 			capabilityCategory = types.TerraformCategory
 		}
+		if wd.Annotations["type"] == string(types.HelmCategory) {
+			capabilityCategory = types.HelmCategory
+		}
 		tmpl, err := NewTemplate(wd.Spec.Template, wd.Spec.Status, wd.Spec.Extension)
 		if err != nil {
 			return nil, errors.WithMessagef(err, "LoadTemplate [%s] ", key)
@@ -94,6 +97,11 @@ func NewTemplate(template string, status *v1alpha2.Status, raw *runtime.RawExten
 		}
 		if extTemplate, ok := extension["template"]; ok {
 			if tmpStr, ok := extTemplate.(string); ok {
+				tmp.TemplateStr = tmpStr
+			}
+		}
+		if helmTemplate, ok := extension["helm"]; ok {
+			if tmpStr, ok := helmTemplate.(string); ok {
 				tmp.TemplateStr = tmpStr
 			}
 		}

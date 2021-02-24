@@ -1,6 +1,8 @@
 package model
 
 import (
+	"encoding/json"
+
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/format"
@@ -54,13 +56,13 @@ func (inst *instance) Unstructured() (*unstructured.Unstructured, error) {
 		return nil, err
 	}
 
-	o := &unstructured.Unstructured{}
+	m := map[string]interface{}{}
 
-	if err := o.UnmarshalJSON(jsonv); err != nil {
+	if err := json.Unmarshal(jsonv, &m); err != nil {
 		return nil, err
 	}
-	return o, nil
 
+	return &unstructured.Unstructured{Object: m}, nil
 }
 
 // Unify implement unity operations between instances
