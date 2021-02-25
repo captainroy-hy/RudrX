@@ -3,8 +3,7 @@ package helm
 import (
 	"fmt"
 
-	helmctl "github.com/fluxcd/helm-controller/api/v2beta1"
-	srcctl "github.com/fluxcd/source-controller/api/v1beta1"
+	helmapi "github.com/oam-dev/kubevela/pkg/appfile/helm/apis"
 	"github.com/pkg/errors"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,9 +18,9 @@ const (
 	BucketRepositoryKind        = "bucket"
 )
 
-type HelmReleaseSpec = helmctl.HelmReleaseSpec
+type HelmReleaseSpecTemplate = helmapi.HelmReleaseSpec
 
-type HelmRepositorySpec = srcctl.HelmRepositorySpec
+type HelmRepositorySpecTemplate = helmapi.HelmRepositorySpec
 
 type HelmReleaseTemplate struct {
 	// The name or path the Helm chart is available at in the SourceRef.
