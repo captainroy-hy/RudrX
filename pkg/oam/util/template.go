@@ -21,6 +21,7 @@ type Template struct {
 	Health             string
 	CustomStatus       string
 	CapabilityCategory types.CapabilityCategory
+	Reference          v1alpha2.DefinitionReference
 }
 
 // GetScopeGVK Get ScopeDefinition
@@ -44,13 +45,6 @@ func LoadTemplate(cli client.Reader, key string, kd types.CapType) (*Template, e
 		if err != nil {
 			return nil, errors.WithMessagef(err, "LoadTemplate [%s] ", key)
 		}
-		var capabilityCategory types.CapabilityCategory
-		if wd.Annotations["type"] == string(types.TerraformCategory) {
-			capabilityCategory = types.TerraformCategory
-		}
-		if wd.Annotations["type"] == string(types.HelmCategory) {
-			capabilityCategory = types.HelmCategory
-		}
 		tmpl, err := NewTemplate(wd.Spec.Template, wd.Spec.Status, wd.Spec.Extension)
 		if err != nil {
 			return nil, errors.WithMessagef(err, "LoadTemplate [%s] ", key)
@@ -58,7 +52,10 @@ func LoadTemplate(cli client.Reader, key string, kd types.CapType) (*Template, e
 		if tmpl == nil {
 			return nil, errors.New("no template found in definition")
 		}
-		tmpl.CapabilityCategory = capabilityCategory
+		tmpl.Reference = wd.Spec.Reference
+		if wd.Annotations["type"] == string(types.TerraformCategory) {
+			tmpl.CapabilityCategory = types.TerraformCategory
+		}
 		return tmpl, nil
 
 	case types.TypeTrait:
@@ -77,6 +74,7 @@ func LoadTemplate(cli client.Reader, key string, kd types.CapType) (*Template, e
 		if tmpl == nil {
 			return nil, errors.New("no template found in definition")
 		}
+		tmpl.Reference = td.Spec.Reference
 		tmpl.CapabilityCategory = capabilityCategory
 		return tmpl, nil
 	case types.TypeScope:
@@ -102,6 +100,8 @@ func NewTemplate(template string, status *v1alpha2.Status, raw *runtime.RawExten
 		}
 		if helmTemplate, ok := extension["helm"]; ok {
 			if tmpStr, ok := helmTemplate.(string); ok {
+				// TODO move helm module template out of .spec.extension
+				tmp.CapabilityCategory = types.HelmCategory
 				tmp.TemplateStr = tmpStr
 			}
 		}

@@ -37,6 +37,7 @@ import (
 	core "github.com/oam-dev/kubevela/pkg/controller/core.oam.dev"
 	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	oamutil "github.com/oam-dev/kubevela/pkg/oam/util"
+	apply "github.com/oam-dev/kubevela/pkg/utils/apply"
 )
 
 // RolloutReconcileWaitTime is the time to wait before reconcile again an application still in rollout phase
@@ -45,9 +46,10 @@ const RolloutReconcileWaitTime = time.Second * 3
 // Reconciler reconciles a Application object
 type Reconciler struct {
 	client.Client
-	dm     discoverymapper.DiscoveryMapper
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	dm         discoverymapper.DiscoveryMapper
+	Log        logr.Logger
+	Scheme     *runtime.Scheme
+	applicator apply.Applicator
 }
 
 // +kubebuilder:rbac:groups=core.oam.dev,resources=applications,verbs=get;list;watch;create;update;patch;delete
@@ -169,11 +171,13 @@ func Setup(mgr ctrl.Manager, _ core.Args, _ logging.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create discovery dm fail %w", err)
 	}
+	l := ctrl.Log.WithName("Application")
 	reconciler := Reconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("Application"),
-		Scheme: mgr.GetScheme(),
-		dm:     dm,
+		Client:     mgr.GetClient(),
+		Log:        l,
+		Scheme:     mgr.GetScheme(),
+		dm:         dm,
+		applicator: apply.NewAPIApplicator(mgr.GetClient(), logging.NewNopLogger().WithValues("Application")),
 	}
 	return reconciler.SetupWithManager(mgr)
 }

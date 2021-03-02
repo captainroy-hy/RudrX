@@ -1,21 +1,16 @@
 package helm
 
 import (
+	"encoding/json"
 	"fmt"
+	"time"
 
-	helmapi "github.com/oam-dev/kubevela/pkg/appfile/helm/apis"
-	"github.com/pkg/errors"
+	"github.com/ghodss/yaml"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-)
 
-const (
-	HelmRepositoryKind   string = "helmrepository"
-	GitRepositoryKind           = "gitrepository"
-	BucketRepositoryKind        = "bucket"
+	helmapi "github.com/oam-dev/kubevela/pkg/appfile/helm/apis"
 )
 
 type HelmReleaseSpecTemplate = helmapi.HelmReleaseSpec
@@ -44,122 +39,62 @@ type HelmRepoTemplate struct {
 	Interval *metav1.Duration `json:"interval,omitempty"`
 }
 
-type GitRepoTemplate struct {
-	// The Git repository URL, a valid URL contains at least a protocol and host.
-	URL string `json:"url"`
+func GenerateHelmReleaseAndHelmRepo(helmSpecStr string, svcName, appName, ns string, values map[string]interface{}) (helmRls, helmRepo *unstructured.Unstructured, err error) {
+	defaultIntervalDuration := &metav1.Duration{Duration: 5 * time.Minute}
 
-	// Interval at which check the upstream for updates. Default 5m.
-	Interval *metav1.Duration `json:"interval,omitempty"`
-}
-
-type BucketTemplate struct {
-	// The bucket name.
-	BucketName string `json:"bucketName"`
-
-	// The bucket endpoint address.
-	Endpoint string `json:"endpoint"`
-
-	// Interval at which check the upstream for updates. Default 5m.
-	Interval *metav1.Duration `json:"interval,omitempty"`
-}
-
-// GenerateHelmReleaseAndHelmRepo generates fluxcd CR, HelmRelease and HelmRepository in unstructured format.
-func GenerateHelmReleaseAndHelmRepo(rlsUnstruct, repoUnstruct *unstructured.Unstructured, name, ns string, values map[string]interface{}) (release, repo *unstructured.Unstructured, err error) {
-	var rlsTemp HelmReleaseTemplate
-	var repoTemp HelmRepoTemplate
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(rlsUnstruct.UnstructuredContent(), &rlsTemp)
-	if err != nil {
-		return nil, nil, err
-	}
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(repoUnstruct.UnstructuredContent(), &repoTemp)
-	if err != nil {
+	helmModule := &helmapi.HelmSpec{}
+	if err := yaml.Unmarshal([]byte(helmSpecStr), helmModule); err != nil {
 		return nil, nil, err
 	}
 
-	// repoName will be used in HelmRepository and HelmChartTemplateSpec both
-	repoName := generateHelmRepoName(name, ns)
-	// map to HelmRepository
-	repo, err = generateHelmRepo(repoTemp)
+	// construct HelmRepository data
+	helmRepo = &unstructured.Unstructured{}
+	helmRepo.SetGroupVersionKind(helmapi.HelmRepositoryGVK)
+	helmRepo.SetNamespace(ns)
+	repoName := fmt.Sprintf("%s-%s-repo", appName, svcName)
+	helmRepo.SetName(repoName)
+
+	if helmModule.HelmRepositorySpec.Interval == nil {
+		helmModule.HelmRepositorySpec.Interval = defaultIntervalDuration
+	}
+	helmRepoSpecData := make(map[string]interface{})
+	bts, err := json.Marshal(helmModule.HelmRepositorySpec)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "cannot generate HelmRepository")
+		return nil, nil, err
 	}
-	repo.SetName(repoName)
-	repo.SetNamespace(ns)
+	if err := json.Unmarshal(bts, &helmRepoSpecData); err != nil {
+		return nil, nil, err
+	}
+	_ = unstructured.SetNestedMap(helmRepo.Object, helmRepoSpecData, "spec")
 
-	// map to CrossNamespaceObjectReference
-	repoRef := unstructured.Unstructured{
-		Object: make(map[string]interface{}),
-	}
-	unstructured.SetNestedField(repoRef.Object, "HelmRepository", "kind")
-	unstructured.SetNestedField(repoRef.Object, repoName, "name")
-	unstructured.SetNestedField(repoRef.Object, ns, "namespace")
+	// construct HelmRelease data
+	rlsName := fmt.Sprintf("%s-%s-rls", appName, svcName)
+	helmRls = &unstructured.Unstructured{}
+	helmRls.SetGroupVersionKind(helmapi.HelmReleaseGVK)
+	helmRls.SetNamespace(ns)
+	helmRls.SetName(rlsName)
 
-	// map to HelmChartTemplateSpec
-	chartTemplateSpec := unstructured.Unstructured{
-		Object: make(map[string]interface{}),
+	if helmModule.HelmReleaseSpec.Interval == nil {
+		helmModule.HelmReleaseSpec.Interval = defaultIntervalDuration
 	}
-	unstructured.SetNestedMap(chartTemplateSpec.Object, repoRef.Object, "sourceRef")
-	if rlsTemp.Chart == "" {
-		return nil, nil, errors.Errorf("chart name or path is required \n releaseTemplateUnstructure %#v \n rlsTemp %#v \n", rlsUnstruct, rlsTemp)
+	if values != nil {
+		vJSON, _ := json.Marshal(values)
+		helmModule.HelmReleaseSpec.Values = &apiextensionsv1.JSON{Raw: vJSON}
 	}
-	unstructured.SetNestedField(chartTemplateSpec.Object, rlsTemp.Chart, "chart")
-	if rlsTemp.Version != "" {
-		unstructured.SetNestedField(chartTemplateSpec.Object, rlsTemp.Version, "version")
+	helmModule.HelmReleaseSpec.Chart.Spec.SourceRef = helmapi.CrossNamespaceObjectReference{
+		Kind:      "HelmRepository",
+		Namespace: ns,
+		Name:      repoName,
 	}
+	helmRlsSpecData := make(map[string]interface{})
+	bts, err = json.Marshal(helmModule.HelmReleaseSpec)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := json.Unmarshal(bts, &helmRlsSpecData); err != nil {
+		return nil, nil, err
+	}
+	_ = unstructured.SetNestedMap(helmRls.Object, helmRlsSpecData, "spec")
 
-	// map to HelmReleaseSpec
-	releaseSpec := unstructured.Unstructured{
-		Object: make(map[string]interface{}),
-	}
-	unstructured.SetNestedMap(releaseSpec.Object, chartTemplateSpec.Object, "chart", "spec")
-	if rlsTemp.Interval != nil {
-		unstructured.SetNestedField(releaseSpec.Object, rlsTemp.Interval.ToUnstructured(), "interval")
-	} else {
-		unstructured.SetNestedField(releaseSpec.Object, "5m", "interval")
-	}
-	unstructured.SetNestedMap(releaseSpec.Object, values, "values", "raw")
-
-	// map to HelmRelease
-	release = &unstructured.Unstructured{}
-	release.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "helm.toolkit.fluxcd.io",
-		Version: "v2beta1",
-		Kind:    "HelmRelease",
-	})
-	release.SetName(name)
-	release.SetNamespace(ns)
-	unstructured.SetNestedMap(release.Object, releaseSpec.Object, "spec")
-
-	return release, repo, nil
-}
-
-func generateHelmRepo(t HelmRepoTemplate) (*unstructured.Unstructured, error) {
-	if t.URL == "" {
-		return nil, errors.New("name of HelmRepository is required")
-	}
-	repoSpec := unstructured.Unstructured{
-		Object: make(map[string]interface{}),
-	}
-	unstructured.SetNestedField(repoSpec.Object, t.URL, "url")
-	if t.Interval != nil {
-		unstructured.SetNestedField(repoSpec.Object, t.Interval.ToUnstructured(), "interval")
-	} else {
-		unstructured.SetNestedField(repoSpec.Object, "5m", "interval")
-	}
-
-	// map to HelmRepository
-	repo := &unstructured.Unstructured{}
-	repo.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "source.toolkit.fluxcd.io",
-		Version: "v1beta1",
-		Kind:    "HelmRepository",
-	})
-	unstructured.SetNestedMap(repo.Object, repoSpec.Object, "spec")
-
-	return repo, nil
-}
-
-// generateHelmRepoName generates name in format: <namespace>-<releaseName>-helmrepo
-func generateHelmRepoName(releaseName, ns string) string {
-	return fmt.Sprintf("%s-%s-helmrepo", ns, releaseName)
+	return helmRls, helmRepo, nil
 }

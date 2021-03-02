@@ -28,8 +28,9 @@ type HelmReleaseSpec struct {
 	Chart HelmChartTemplate `json:"chart"`
 
 	// Interval at which to reconcile the Helm release.
-	// +required
-	Interval metav1.Duration `json:"interval"`
+	// make it optional in KubeVela
+	// +optional
+	Interval *metav1.Duration `json:"interval,omitempty"`
 
 	// KubeConfig for reconciling the HelmRelease on a remote cluster.
 	// When specified, KubeConfig takes precedence over ServiceAccountName.

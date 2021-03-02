@@ -270,11 +270,28 @@ type ComponentSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Workload runtime.RawExtension `json:"workload"`
 
+	// HelmRelease records a Helm release used by a Helm module workload.
+	// +optional
+	HelmModule *HelmModuleResource `json:"helmModule,omitempty"`
+
 	// Parameters exposed by this component. ApplicationConfigurations that
 	// reference this component may specify values for these parameters, which
 	// will in turn be injected into the embedded workload.
 	// +optional
 	Parameters []ComponentParameter `json:"parameters,omitempty"`
+}
+
+// A HelmModuleResource represents resources used by a Helm module
+type HelmModuleResource struct {
+	// HelmRelease records a Helm release used by a Helm module workload.
+	// +kubebuilder:validation:EmbeddedResource
+	// +kubebuilder:pruning:PreserveUnknownFields
+	HelmRelease runtime.RawExtension `json:"helmRelease"`
+
+	// HelmRelease records a Helm repository used by a Helm module workload.
+	// +kubebuilder:validation:EmbeddedResource
+	// +kubebuilder:pruning:PreserveUnknownFields
+	HelmRepository runtime.RawExtension `json:"helmRepository"`
 }
 
 // A ComponentStatus represents the observed state of a Component.

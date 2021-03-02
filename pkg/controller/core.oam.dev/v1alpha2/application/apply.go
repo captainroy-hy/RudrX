@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	ctypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/pointer"
@@ -27,6 +29,7 @@ import (
 	"github.com/oam-dev/kubevela/pkg/controller/utils"
 	"github.com/oam-dev/kubevela/pkg/dsl/process"
 	"github.com/oam-dev/kubevela/pkg/oam"
+	"github.com/oam-dev/kubevela/pkg/oam/util"
 	oamutil "github.com/oam-dev/kubevela/pkg/oam/util"
 )
 
@@ -102,6 +105,51 @@ func (h *appHandler) apply(ctx context.Context, ac *v1alpha2.ApplicationConfigur
 				ac.Spec.Components[i].RevisionName = revisionName
 				ac.Spec.Components[i].ComponentName = ""
 			}
+		}
+		if comp.Spec.HelmModule != nil {
+			h.logger.Info("Process a Helm module component")
+			// apply helm module resources
+			repo, err := util.RawExtension2Unstructured(&comp.Spec.HelmModule.HelmRepository)
+			if err != nil {
+				h.logger.Info(fmt.Sprintf("repo error %s\n", err.Error()))
+				return err
+			}
+			rls, err := util.RawExtension2Unstructured(&comp.Spec.HelmModule.HelmRelease)
+			if err != nil {
+				h.logger.Info(fmt.Sprintf("rls error %s\n", err.Error()))
+				return err
+			}
+			// set workload name into release values
+			revision, err := utils.ExtractRevision(revisionName)
+			if err != nil {
+				return err
+			}
+			wlName := utils.ConstructRevisionName(comp.Name, int64(revision))
+			rlsValues, exist, err := unstructured.NestedString(rls.Object, "spec", "values", "Raw")
+			if err != nil {
+				return err
+			}
+			chartValues := map[string]interface{}{}
+			if exist {
+				if err := json.Unmarshal([]byte(rlsValues), &chartValues); err != nil {
+					return errors.Wrap(err, rlsValues)
+				}
+			}
+			chartValues["kubevelaWorkloadName"] = wlName
+			bts, _ := json.Marshal(chartValues)
+			_ = unstructured.SetNestedField(rls.Object, string(bts), "spec", "values", "Raw")
+
+			rls.SetOwnerReferences(owners)
+			repo.SetOwnerReferences(owners)
+
+			if err := h.r.applicator.Apply(ctx, repo); err != nil {
+				return err
+			}
+			h.logger.Info("Apply a HelmRepository", "repo: ", fmt.Sprintf("%#v", repo))
+			if err := h.r.applicator.Apply(ctx, rls); err != nil {
+				return err
+			}
+			h.logger.Info("Apply a HelmRelease", "release:", fmt.Sprintf("%#v", rls))
 		}
 	}
 	// set the annotation on ac to point out which component are newly changed
@@ -207,6 +255,10 @@ func (h *appHandler) createOrUpdateComponent(ctx context.Context, comp *v1alpha2
 	// object is persisted as Raw data after going through api server
 	updatedComp := comp.DeepCopy()
 	updatedComp.Spec.Workload.Object = nil
+	if updatedComp.Spec.HelmModule != nil {
+		updatedComp.Spec.HelmModule.HelmRelease.Object = nil
+		updatedComp.Spec.HelmModule.HelmRepository.Object = nil
+	}
 	if len(preRevisionName) != 0 {
 		needNewRevision, err := utils.CompareWithRevision(ctx, h.r,
 			logging.NewLogrLogger(h.logger), compName, compNameSpace, preRevisionName, &updatedComp.Spec)

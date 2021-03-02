@@ -42,6 +42,23 @@ spec:
           spec:
             description: A ComponentSpec defines the desired state of a Component.
             properties:
+              helmModule:
+                description: HelmRelease records a Helm release used by a Helm module workload.
+                properties:
+                  helmRelease:
+                    description: HelmRelease records a Helm release used by a Helm module workload.
+                    type: object
+                    x-kubernetes-embedded-resource: true
+                    x-kubernetes-preserve-unknown-fields: true
+                  helmRepository:
+                    description: HelmRelease records a Helm repository used by a Helm module workload.
+                    type: object
+                    x-kubernetes-embedded-resource: true
+                    x-kubernetes-preserve-unknown-fields: true
+                required:
+                - helmRelease
+                - helmRepository
+                type: object
               parameters:
                 description: Parameters exposed by this component. ApplicationConfigurations that reference this component may specify values for these parameters, which will in turn be injected into the embedded workload.
                 items:
