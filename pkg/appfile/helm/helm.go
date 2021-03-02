@@ -77,10 +77,23 @@ func GenerateHelmReleaseAndHelmRepo(helmSpecStr string, svcName, appName, ns str
 	if helmModule.HelmReleaseSpec.Interval == nil {
 		helmModule.HelmReleaseSpec.Interval = defaultIntervalDuration
 	}
-	if values != nil {
-		vJSON, _ := json.Marshal(values)
+
+	chartValues := map[string]interface{}{}
+	if helmModule.HelmReleaseSpec.Values != nil {
+		if err := json.Unmarshal(helmModule.HelmReleaseSpec.Values.Raw, &chartValues); err != nil {
+			return nil, nil, err
+		}
+	}
+	for k, v := range values {
+		// overrid values with settings from application
+		chartValues[k] = v
+	}
+	if len(chartValues) > 0 {
+		// avoid an empty map
+		vJSON, _ := json.Marshal(chartValues)
 		helmModule.HelmReleaseSpec.Values = &apiextensionsv1.JSON{Raw: vJSON}
 	}
+
 	helmModule.HelmReleaseSpec.Chart.Spec.SourceRef = helmapi.CrossNamespaceObjectReference{
 		Kind:      "HelmRepository",
 		Namespace: ns,
