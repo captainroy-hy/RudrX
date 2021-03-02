@@ -125,7 +125,8 @@ func (a *workloads) Apply(ctx context.Context, status []v1alpha2.WorkloadStatus,
 				}
 				if err := wait.ExponentialBackoff(utils.DefaultBackoff, waitFroWorkloadByHelm); err != nil {
 					klog.InfoS("cannot get the workload created by Helm module",
-						"component name", wl.ComponentName, "component revision", wl.ComponentRevisionName)
+						"component name", wl.ComponentName, "component revision", wl.ComponentRevisionName,
+						"workloadanme", wl.Workload.GetName())
 					return err
 				}
 			}
