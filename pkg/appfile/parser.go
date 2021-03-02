@@ -227,7 +227,7 @@ func (p *Parser) GenerateApplicationConfiguration(app *Appfile, ns string) (*v1a
 
 		switch wl.CapabilityCategory {
 		case types.HelmCategory:
-			comp, acComp, err = generateComponentFromHelmModule(p.client, wl, app.Name, ns)
+			comp, acComp, err = generateComponentFromHelmModule(p.client, p.dm,wl, app.Name, ns)
 			if err != nil {
 				return nil, nil, err
 			}

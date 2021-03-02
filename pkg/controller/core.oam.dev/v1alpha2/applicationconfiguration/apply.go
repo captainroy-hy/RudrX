@@ -33,10 +33,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1alpha2"
+	"github.com/oam-dev/kubevela/pkg/controller/utils"
 	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	"github.com/oam-dev/kubevela/pkg/oam/util"
 	"github.com/oam-dev/kubevela/pkg/utils/apply"
@@ -110,6 +112,21 @@ func (a *workloads) Apply(ctx context.Context, status []v1alpha2.WorkloadStatus,
 				wl.ComponentRevisionName)
 		}
 		if !wl.HasDep && !wl.SkipApply {
+			if wl.ByHelmModule {
+				// loop waiting for HelmRelease installed successfully
+				// guarante we can get the target workload
+				waitFroWorkloadByHelm := func() (bool, error) {
+					wlByHelmModule := wl.Workload.DeepCopy()
+					wlKey := types.NamespacedName{Namespace: namespace, Name: wl.Workload.GetName()}
+					if err := a.rawClient.Get(ctx, wlKey, wlByHelmModule); err != nil {
+						return false, nil
+					}
+					return true, nil
+				}
+				if err := wait.ExponentialBackoff(utils.DefaultBackoff, waitFroWorkloadByHelm); err != nil {
+					return err
+				}
+			}
 			// Apply the DataInputs to this workload
 			if err := a.ApplyInputRef(ctx, wl.Workload, wl.DataInputs, namespace, ao...); err != nil {
 				return err

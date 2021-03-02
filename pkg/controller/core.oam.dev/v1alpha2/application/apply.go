@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -125,19 +124,15 @@ func (h *appHandler) apply(ctx context.Context, ac *v1alpha2.ApplicationConfigur
 				return err
 			}
 			wlName := utils.ConstructRevisionName(comp.Name, int64(revision))
-			rlsValues, exist, err := unstructured.NestedString(rls.Object, "spec", "values", "Raw")
+			rlsValues, exist, err := unstructured.NestedMap(rls.Object, "spec", "values")
 			if err != nil {
 				return err
 			}
-			chartValues := map[string]interface{}{}
-			if exist {
-				if err := json.Unmarshal([]byte(rlsValues), &chartValues); err != nil {
-					return errors.Wrap(err, rlsValues)
-				}
+			if !exist {
+				rlsValues = make(map[string]interface{})
 			}
-			chartValues["kubevelaWorkloadName"] = wlName
-			bts, _ := json.Marshal(chartValues)
-			_ = unstructured.SetNestedField(rls.Object, string(bts), "spec", "values", "Raw")
+			rlsValues["kubevelaWorkloadName"] = wlName
+			_ = unstructured.SetNestedMap(rls.Object, rlsValues, "spec", "values")
 
 			rls.SetOwnerReferences(owners)
 			repo.SetOwnerReferences(owners)
@@ -145,11 +140,13 @@ func (h *appHandler) apply(ctx context.Context, ac *v1alpha2.ApplicationConfigur
 			if err := h.r.applicator.Apply(ctx, repo); err != nil {
 				return err
 			}
-			h.logger.Info("Apply a HelmRepository", "repo: ", fmt.Sprintf("%#v", repo))
+			h.logger.Info("Apply a HelmRepository", "repo: ",
+				fmt.Sprintf("namespace: %s, name:%s", repo.GetNamespace(), repo.GetName()))
 			if err := h.r.applicator.Apply(ctx, rls); err != nil {
 				return err
 			}
-			h.logger.Info("Apply a HelmRelease", "release:", fmt.Sprintf("%#v", rls))
+			h.logger.Info("Apply a HelmRelease", "release:",
+				fmt.Sprintf("namespace: %s, name:%s", rls.GetNamespace(), rls.GetName()))
 		}
 	}
 	// set the annotation on ac to point out which component are newly changed

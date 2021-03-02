@@ -266,9 +266,9 @@ type ComponentSpec struct {
 	// includes this Component. Workload is an instance of a workloadDefinition.
 	// We either use the GVK info or a special "type" field in the workload to associate
 	// the content of the workload with its workloadDefinition
-	// +kubebuilder:validation:EmbeddedResource
 	// +kubebuilder:pruning:PreserveUnknownFields
-	Workload runtime.RawExtension `json:"workload"`
+	// +optional
+	Workload runtime.RawExtension `json:"workload,omitempty"`
 
 	// HelmRelease records a Helm release used by a Helm module workload.
 	// +optional

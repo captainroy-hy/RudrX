@@ -475,6 +475,9 @@ type Workload struct {
 	// HasDep indicates whether this resource has dependencies and unready to be applied.
 	HasDep bool
 
+	// ByHelmModule indicates whether this resource is created by a Helm module
+	ByHelmModule bool
+
 	// Traits associated with this workload.
 	Traits []*Trait
 

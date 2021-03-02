@@ -2,6 +2,7 @@ package apply
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/crossplane/crossplane-runtime/pkg/logging"
 
@@ -127,13 +128,17 @@ func createOrGetExisting(ctx context.Context, log logging.Logger, c client.Clien
 		return create()
 	}
 
+	dGVK := desired.GetObjectKind().GroupVersionKind()
 	existing := &unstructured.Unstructured{}
-	existing.GetObjectKind().SetGroupVersionKind(desired.GetObjectKind().GroupVersionKind())
+	existing.GetObjectKind().SetGroupVersionKind(dGVK)
 	err := c.Get(ctx, types.NamespacedName{Name: m.GetName(), Namespace: m.GetNamespace()}, existing)
 	if kerrors.IsNotFound(err) {
 		return create()
 	}
 	if err != nil {
+		_ = desired.GetObjectKind().GroupVersionKind()
+		log.Debug("Unstructured's GVK", "desired:", fmt.Sprintf("%#v", desired.GetObjectKind().GroupVersionKind()))
+		log.Debug("Unstructured's GVK", "desired:", fmt.Sprintf("%#v", desired))
 		return nil, errors.Wrap(err, "cannot get object")
 	}
 	return existing, nil

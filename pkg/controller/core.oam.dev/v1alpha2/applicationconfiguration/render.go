@@ -149,6 +149,7 @@ func (r *components) renderComponent(ctx context.Context, acc v1alpha2.Applicati
 	if err != nil {
 		return nil, err
 	}
+
 	p, err := r.params.Resolve(c.Spec.Parameters, acc.ParameterValues)
 	if err != nil {
 		return nil, errors.Wrapf(err, errFmtResolveParams, acc.ComponentName)
@@ -254,7 +255,8 @@ func (r *components) renderComponent(ctx context.Context, acc v1alpha2.Applicati
 	// indicated by the AnnotationAppRollout annotation disappear
 	return &Workload{SkipApply: isChanged && !isRolloutTemplate, ComponentName: acc.ComponentName,
 		ComponentRevisionName: componentRevisionName,
-		Workload:              w, Traits: traits, RevisionEnabled: isRevisionEnabled(traitDefs), Scopes: scopes}, nil
+		Workload:              w, Traits: traits, RevisionEnabled: isRevisionEnabled(traitDefs), Scopes: scopes,
+		ByHelmModule: c.Spec.HelmModule == nil}, nil
 }
 
 func (r *components) renderTrait(ctx context.Context, ct v1alpha2.ComponentTrait, ac *v1alpha2.ApplicationConfiguration,

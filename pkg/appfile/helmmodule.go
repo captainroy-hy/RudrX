@@ -2,20 +2,21 @@ package appfile
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/crossplane/crossplane-runtime/apis/core/v1alpha1"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1alpha2"
 	"github.com/oam-dev/kubevela/pkg/appfile/helm"
 	"github.com/oam-dev/kubevela/pkg/oam"
+	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	"github.com/oam-dev/kubevela/pkg/oam/util"
 )
 
-func generateComponentFromHelmModule(c client.Client, wl *Workload, appName string, ns string) (*v1alpha2.Component, *v1alpha2.ApplicationConfigurationComponent, error) {
+func generateComponentFromHelmModule(c client.Client, dm discoverymapper.DiscoveryMapper, wl *Workload, appName string, ns string) (*v1alpha2.Component, *v1alpha2.ApplicationConfigurationComponent, error) {
 	comp := &v1alpha2.Component{}
 	acComp := &v1alpha2.ApplicationConfigurationComponent{}
 
@@ -24,21 +25,21 @@ func generateComponentFromHelmModule(c client.Client, wl *Workload, appName stri
 		return nil, nil, err
 	}
 
-	// TODO set workload raw data here if we can get it
-	b, _ := json.Marshal(rls.Object)
-	comp.Spec.Workload = runtime.RawExtension{Raw: b}
+	targetWokrloadGVK, err := util.GetGVKFromDefinition(dm, wl.Reference)
+	if err != nil {
+		return nil, nil, err
+	}
+	targetWorkload := unstructured.Unstructured{}
+	targetWorkload.SetGroupVersionKind(targetWokrloadGVK)
+
+	bts, _ := json.Marshal(targetWorkload.Object)
+	comp.Spec.Workload = runtime.RawExtension{Raw: bts}
 	rlsBytes, _ := json.Marshal(rls.Object)
 	repoBytes, _ := json.Marshal(repo.Object)
-	fmt.Printf("\nrelease: %#v \n", rls.Object)
-	fmt.Printf("\nrepo: %#v \n", repo.Object)
 
 	comp.Spec.HelmModule = &v1alpha2.HelmModuleResource{
-		HelmRelease: runtime.RawExtension{
-			Raw:    rlsBytes,
-			Object: rls},
-		HelmRepository: runtime.RawExtension{
-			Raw:    repoBytes,
-			Object: repo},
+		HelmRelease:    runtime.RawExtension{Raw: rlsBytes},
+		HelmRepository: runtime.RawExtension{Raw: repoBytes},
 	}
 
 	comp.Name = wl.Name
