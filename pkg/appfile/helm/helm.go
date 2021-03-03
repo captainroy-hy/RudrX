@@ -94,6 +94,7 @@ func GenerateHelmReleaseAndHelmRepo(helmSpecStr string, svcName, appName, ns str
 		helmModule.HelmReleaseSpec.Values = &apiextensionsv1.JSON{Raw: vJSON}
 	}
 
+	// reference HelmRepository by HelmRelease
 	helmModule.HelmReleaseSpec.Chart.Spec.SourceRef = helmapi.CrossNamespaceObjectReference{
 		Kind:      "HelmRepository",
 		Namespace: ns,

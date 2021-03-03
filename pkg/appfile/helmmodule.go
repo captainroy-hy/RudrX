@@ -37,9 +37,9 @@ func generateComponentFromHelmModule(c client.Client, dm discoverymapper.Discove
 	rlsBytes, _ := json.Marshal(rls.Object)
 	repoBytes, _ := json.Marshal(repo.Object)
 
-	comp.Spec.HelmModule = &v1alpha2.HelmModuleResource{
-		HelmRelease:    runtime.RawExtension{Raw: rlsBytes},
-		HelmRepository: runtime.RawExtension{Raw: repoBytes},
+	comp.Spec.Helm = &v1alpha2.Helm{
+		Release:    runtime.RawExtension{Raw: rlsBytes},
+		Repository: runtime.RawExtension{Raw: repoBytes},
 	}
 
 	comp.Name = wl.Name

@@ -42,22 +42,22 @@ spec:
         spec:
           description: A ComponentSpec defines the desired state of a Component.
           properties:
-            helmModule:
+            helm:
               description: HelmRelease records a Helm release used by a Helm module workload.
               properties:
-                helmRelease:
-                  description: HelmRelease records a Helm release used by a Helm module workload.
+                release:
+                  description: Release records a Helm release used by a Helm module workload.
                   type: object
                   
                   
-                helmRepository:
+                repository:
                   description: HelmRelease records a Helm repository used by a Helm module workload.
                   type: object
                   
                   
               required:
-              - helmRelease
-              - helmRepository
+              - release
+              - repository
               type: object
             parameters:
               description: Parameters exposed by this component. ApplicationConfigurations that reference this component may specify values for these parameters, which will in turn be injected into the embedded workload.

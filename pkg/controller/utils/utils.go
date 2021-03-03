@@ -12,9 +12,10 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/fieldpath"
 	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	mapset "github.com/deckarep/golang-set"
+	"github.com/pkg/errors"
 	v12 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -104,6 +105,62 @@ func DiscoveryFromPodTemplate(w *unstructured.Unstructured, fields ...string) ([
 	return ports, spec.Labels, nil
 }
 
+// DiscoveryHelmModuleWorkload will get the workload created by flux/helm-controller
+func DiscoveryHelmModuleWorkload(ctx context.Context, c client.Client, comp *v1alpha2.Component, ns string) (*unstructured.Unstructured, error) {
+	if comp == nil || comp.Spec.Helm == nil {
+		return nil, errors.New("the component has no valid helm module")
+	}
+
+	rls, err := util.RawExtension2Unstructured(&comp.Spec.Helm.Release)
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot get helm release from component")
+	}
+	rlsName := rls.GetName()
+
+	wlBase, err := util.RawExtension2Unstructured(&comp.Spec.Workload)
+	if err != nil {
+		return nil, errors.Wrap(err, "cannot get base workload from component")
+	}
+	wlGVK := wlBase.GetObjectKind().GroupVersionKind()
+
+	wlList := unstructured.UnstructuredList{}
+	wlList.SetGroupVersionKind(wlGVK)
+	// first try to discover through label selectors including "managed-by"
+	if err := c.List(ctx, &wlList, client.MatchingLabels(
+		map[string]string{
+			"app.kubernetes.io/name": rlsName,
+			oam.LabelAppManagedBy:    oam.ManagedByKubeVela,
+		}),
+		client.InNamespace(ns)); err != nil {
+		return nil, err
+	}
+	if len(wlList.Items) > 0 {
+		if len(wlList.Items) == 1 {
+			return wlList.Items[0].DeepCopy(), nil
+		}
+		// a helm module is allowed to have only one OAM workload
+		return nil, fmt.Errorf("more than one workloads are found in helm module, GVK: %s", wlGVK.String())
+	}
+
+	// if not found, try to discover through label selectors without "managed-by"
+	if err := c.List(ctx, &wlList, client.MatchingLabels(
+		map[string]string{
+			"app.kubernetes.io/name": rlsName,
+		}),
+		client.InNamespace(ns)); err != nil {
+		return nil, err
+	}
+	if len(wlList.Items) > 0 {
+		if len(wlList.Items) == 1 {
+			return wlList.Items[0].DeepCopy(), nil
+		}
+		// a helm module is allowed to have only one OAM workload
+		return nil, fmt.Errorf("more than one workloads are found in helm module, GVK: %s", wlGVK.String())
+	}
+
+	return nil, errors.New("not found workload by helm module")
+}
+
 func getContainerPorts(cs []v1.Container) []intstr.IntOrString {
 	var ports []intstr.IntOrString
 	// TODO(wonderflow): exclude some sidecars
@@ -184,7 +241,7 @@ func CompareWithRevision(ctx context.Context, c client.Client, logger logging.Lo
 	// retry on NotFound since we update the component last revision first
 	err := wait.ExponentialBackoff(retry.DefaultBackoff, func() (bool, error) {
 		err := c.Get(ctx, client.ObjectKey{Namespace: nameSpace, Name: latestRevision}, oldRev)
-		if err != nil && !errors.IsNotFound(err) {
+		if err != nil && !k8serrors.IsNotFound(err) {
 			logger.Info(fmt.Sprintf("get old controllerRevision %s error %v",
 				latestRevision, err), "componentName", componentName)
 			return false, err

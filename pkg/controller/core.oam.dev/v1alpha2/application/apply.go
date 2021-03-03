@@ -105,15 +105,15 @@ func (h *appHandler) apply(ctx context.Context, ac *v1alpha2.ApplicationConfigur
 				ac.Spec.Components[i].ComponentName = ""
 			}
 		}
-		if comp.Spec.HelmModule != nil {
+		if comp.Spec.Helm != nil {
 			h.logger.Info("Process a Helm module component")
 			// apply helm module resources
-			repo, err := util.RawExtension2Unstructured(&comp.Spec.HelmModule.HelmRepository)
+			repo, err := util.RawExtension2Unstructured(&comp.Spec.Helm.Repository)
 			if err != nil {
 				h.logger.Info(fmt.Sprintf("repo error %s\n", err.Error()))
 				return err
 			}
-			rls, err := util.RawExtension2Unstructured(&comp.Spec.HelmModule.HelmRelease)
+			rls, err := util.RawExtension2Unstructured(&comp.Spec.Helm.Release)
 			if err != nil {
 				h.logger.Info(fmt.Sprintf("rls error %s\n", err.Error()))
 				return err
@@ -252,9 +252,9 @@ func (h *appHandler) createOrUpdateComponent(ctx context.Context, comp *v1alpha2
 	// object is persisted as Raw data after going through api server
 	updatedComp := comp.DeepCopy()
 	updatedComp.Spec.Workload.Object = nil
-	if updatedComp.Spec.HelmModule != nil {
-		updatedComp.Spec.HelmModule.HelmRelease.Object = nil
-		updatedComp.Spec.HelmModule.HelmRepository.Object = nil
+	if updatedComp.Spec.Helm != nil {
+		updatedComp.Spec.Helm.Release.Object = nil
+		updatedComp.Spec.Helm.Repository.Object = nil
 	}
 	if len(preRevisionName) != 0 {
 		needNewRevision, err := utils.CompareWithRevision(ctx, h.r,

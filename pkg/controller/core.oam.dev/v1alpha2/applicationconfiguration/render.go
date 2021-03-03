@@ -256,7 +256,7 @@ func (r *components) renderComponent(ctx context.Context, acc v1alpha2.Applicati
 	return &Workload{SkipApply: isChanged && !isRolloutTemplate, ComponentName: acc.ComponentName,
 		ComponentRevisionName: componentRevisionName,
 		Workload:              w, Traits: traits, RevisionEnabled: isRevisionEnabled(traitDefs), Scopes: scopes,
-		ByHelmModule: c.Spec.HelmModule != nil}, nil
+		ByHelmModule: c.Spec.Helm != nil}, nil
 }
 
 func (r *components) renderTrait(ctx context.Context, ct v1alpha2.ComponentTrait, ac *v1alpha2.ApplicationConfiguration,

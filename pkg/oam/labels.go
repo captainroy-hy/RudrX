@@ -29,6 +29,8 @@ const (
 	LabelOAMResourceType = "app.oam.dev/resourceType"
 	// LabelAppConfigHash records the Hash value of the application configuration
 	LabelAppConfigHash = "app.oam.dev/appConfig-hash"
+	// LabelAppManagedBy indicates who is managing the object
+	LabelAppManagedBy = "app.oam.dev/managed-by"
 
 	// WorkloadTypeLabel indicates the type of the workloadDefinition
 	WorkloadTypeLabel = "workload.oam.dev/type"
@@ -43,6 +45,9 @@ const (
 	ResourceTypeTrait = "TRAIT"
 	// ResourceTypeWorkload mark this K8s Custom Resource is an OAM workload
 	ResourceTypeWorkload = "WORKLOAD"
+
+	// ManagedByKubeVela indicates the object is managed by KubeVela
+	ManagedByKubeVela = "KUBEVELA"
 )
 
 const (
