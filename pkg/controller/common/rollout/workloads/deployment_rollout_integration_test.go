@@ -245,10 +245,13 @@ var _ = Describe("deployment controller", func() {
 			// test environment doesn't have deployment controller, has to fake it
 			c.sourceDeploy.Status.Replicas = 5
 			Expect(k8sClient.Status().Update(ctx, &sourceDeploy)).Should(Succeed())
-			targetDeploy.Spec.Replicas = pointer.Int32Ptr(0)
+
+			targetDeploy.Spec.Replicas = pointer.Int32Ptr(1)
+			targetDeploy.Spec.Paused = true
 			Expect(k8sClient.Create(ctx, &targetDeploy)).Should(SatisfyAny(Succeed(), &util.AlreadyExistMatcher{}))
 
-			By("verify should not fail b/c of deployment not stable")
+			By("verify should not fail, source deployment is not paused but stable")
+			By("verify should not fail, target deployment is not stable but paused")
 			consistent, err := c.VerifySpec(ctx)
 			Expect(err.Error()).ShouldNot(ContainSubstring("is still being reconciled, need to be paused or stable"))
 			Expect(consistent).Should(BeFalse())
