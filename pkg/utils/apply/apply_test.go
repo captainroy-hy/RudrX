@@ -323,6 +323,7 @@ func TestMustBeControllableBy(t *testing.T) {
 		reason  string
 		current runtime.Object
 		u       types.UID
+		c       client.Reader
 		want    error
 	}{
 		"NoExistingObject": {
@@ -348,7 +349,25 @@ func TestMustBeControllableBy(t *testing.T) {
 				UID:        types.UID("some-other-uid"),
 				Controller: &controller,
 			}}}},
+			c: &test.MockClient{
+				MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+					return nil
+				},
+			},
 			want: errors.Errorf("existing object is not controlled by UID %q", uid),
+		},
+		"ControlledBySomeoneNotExists": {
+			reason: "The object is controlled by a nonexistent object with different UID",
+			u:      uid,
+			current: &testObject{ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{
+				UID:        types.UID("some-other-uid"),
+				Controller: &controller,
+			}}}},
+			c: &test.MockClient{
+				MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+					return kerrors.NewNotFound(schema.GroupResource{}, "someone")
+				},
+			},
 		},
 		"cross namespace resource": {
 			reason: "A cross namespace resource have a resourceTracker owner, skip check UID",
@@ -363,7 +382,7 @@ func TestMustBeControllableBy(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ao := MustBeControllableBy(tc.u)
+			ao := MustBeControllableBy(tc.c, tc.u)
 			err := ao(ctx, tc.current, nil)
 			if diff := cmp.Diff(tc.want, err, test.EquateErrors()); diff != "" {
 				t.Errorf("\n%s\nMustBeControllableBy(...)(...): -want error, +got error\n%s\n", tc.reason, diff)

@@ -309,7 +309,7 @@ func (r *OAMApplicationReconciler) ACReconcile(ctx context.Context, ac *v1alpha2
 	r.record.Event(ac, event.Normal(reasonRenderComponents, "Successfully rendered components",
 		"workloads", strconv.Itoa(len(workloads))))
 
-	applyOpts := []apply.ApplyOption{apply.MustBeControllableBy(ac.GetUID()), applyOnceOnly(ac, r.applyOnceOnlyMode, log)}
+	applyOpts := []apply.ApplyOption{apply.MustBeControllableBy(r.client,ac.GetUID()), applyOnceOnly(ac, r.applyOnceOnlyMode, log)}
 	if err := r.workloads.Apply(ctx, ac.Status.Workloads, workloads, applyOpts...); err != nil {
 		log.Debug("Cannot apply workload", "error", err)
 		r.record.Event(ac, event.Warning(reasonCannotApplyComponents, err))

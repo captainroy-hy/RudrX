@@ -164,11 +164,11 @@ func executeApplyOptions(ctx context.Context, existing, desired runtime.Object, 
 	return nil
 }
 
-// MustBeControllableBy requires that the new object is controllable by an
-// object with the supplied UID. An object is controllable if its controller
-// reference includes the supplied UID.
-func MustBeControllableBy(u types.UID) ApplyOption {
-	return func(_ context.Context, existing, _ runtime.Object) error {
+// MustBeControllableBy requires that the existing object is controllable by an
+// existing object with the supplied UID. An object is controllable if its
+// controller reference includes the supplied UID.
+func MustBeControllableBy(cli client.Reader, u types.UID) ApplyOption {
+	return func(ctx context.Context, existing, _ runtime.Object) error {
 		if existing == nil {
 			return nil
 		}
@@ -181,6 +181,24 @@ func MustBeControllableBy(u types.UID) ApplyOption {
 			return nil
 		}
 		if c.UID != u {
+			if cli == nil {
+				return errors.New("require a client to validate MustBeControllableBy")
+			}
+			// check whether the controller still exists
+			cObj := &unstructured.Unstructured{}
+			cObj.SetAPIVersion(c.APIVersion)
+			cObj.SetKind(c.Kind)
+			ns := existing.(metav1.Object).GetNamespace()
+			if err := cli.Get(ctx, client.ObjectKey{Name: c.Name, Namespace: ns}, cObj); err != nil {
+				if kerrors.IsNotFound(err) {
+					loggingApply("controller owner with different UID has been deleted", cObj)
+					// the controller has been deleted
+					// continue applying
+					return nil
+				}
+				return errors.Wrapf(err, "cannot get the controller with UID %q", u)
+			}
+			// a controller with conflicting UID exists, raise an error to abort applying
 			return errors.Errorf("existing object is not controlled by UID %q", u)
 		}
 		return nil
