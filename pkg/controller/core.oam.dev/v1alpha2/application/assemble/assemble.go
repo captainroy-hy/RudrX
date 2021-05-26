@@ -30,14 +30,14 @@ import (
 	"github.com/oam-dev/kubevela/pkg/oam/util"
 )
 
-// NewAssembleOptions create an AssembleOptions based on an ApplicationRevision
+// NewAssembleOptions create a Options
 func NewAssembleOptions(appRevision *v1beta1.ApplicationRevision) *Options {
 	return &Options{AppRevision: appRevision}
 }
 
-// Options contains options to assemble manifests (an ApplicationConfiguration and its Components).
-// Assemble means completing the workload/trait rendered from an application until they are ready to deploy into K8s
-// clusters.
+// Options contains configuration to assemble resources recorded in the ApplicationRevision.
+// 'Assemble' means completing workload/trait resources and get them ready to emit into K8s
+// cluster.
 type Options struct {
 	AppRevision     *v1beta1.ApplicationRevision
 	WorkloadOptions []WorkloadOption
@@ -52,16 +52,22 @@ type Options struct {
 
 	// map key is component name
 	AssembledWorkloads map[string]*unstructured.Unstructured
-	// map key is component name
-	AssembledTraits map[string][]*unstructured.Unstructured
+	AssembledTraits    map[string][]*unstructured.Unstructured
+	ReferencedScopes   map[string][]runtimev1alpha1.TypedReference
 }
 
 // WorkloadOption will be applied to each workloads AFTER it has been assembled by generic rules shown below:
-// 1) set component revision name as workload name
-// 2) set application namespace as workload namespace if unspecified
-// 3) set application as workload's controller-owner
-// 4) add all application's lables and annotations to workload's
+// 1) use component name as workload name
+// 2) use application namespace as workload namespace if unspecified
+// 3) set application as workload's owner
+// 4) pass all application's lables and annotations to workload's
 // Component and ComponentDefinition are enough for caller to manipulate workloads.
+// Caller can use below lables of workload to get more information:
+// - oam.LabelAppName
+// - oam.LabelAppRevision
+// - oam.LabelAppRevisionHash
+// - oam.LabelAppComponent
+// - oam.LabelAppComponentRevision
 type WorkloadOption interface {
 	ApplyToWorkload(workload *unstructured.Unstructured, comp *v1alpha2.Component, compDefinition *v1beta1.ComponentDefinition) error
 }
@@ -76,15 +82,15 @@ func (o *Options) WithWorkloadOption(wo WorkloadOption) *Options {
 }
 
 // Assemble an application's manifests including workloads and traits according to a specific application revision
-func (o *Options) Assemble() (map[string]*unstructured.Unstructured, map[string][]*unstructured.Unstructured, error) {
+func (o *Options) Assemble() (map[string]*unstructured.Unstructured, map[string][]*unstructured.Unstructured, map[string][]runtimev1alpha1.TypedReference, error) {
 	o.complete()
 	if err := o.validate(); err != nil {
-		return nil, nil, errors.WithMessagef(err, "cannot assemble manifests of application %q", o.AppName)
+		return nil, nil, nil, errors.WithMessagef(err, "cannot assemble manifests of application %q", o.AppName)
 	}
 	if err := o.assemble(); err != nil {
-		return nil, nil, errors.WithMessagef(err, "cannot assemble manifests of application %q", o.AppName)
+		return nil, nil, nil, errors.WithMessagef(err, "cannot assemble manifests of application %q", o.AppName)
 	}
-	return o.AssembledWorkloads, o.AssembledTraits, nil
+	return o.AssembledWorkloads, o.AssembledTraits, o.ReferencedScopes, nil
 }
 
 func (o *Options) assemble() error {
@@ -95,11 +101,11 @@ func (o *Options) assemble() error {
 		var workloadRef runtimev1alpha1.TypedReference
 		for _, comp := range o.Comps {
 			if comp.Name == compName {
-				wl, err := convertRawExtension2Unstructured(&comp.Spec.Workload)
+				wl, err := util.RawExtension2Unstructured(&comp.Spec.Workload)
 				if err != nil {
 					return errors.WithMessagef(err, "cannot convert raw workload in component %q", compName)
 				}
-				o.setWorkloadName(wl, compRevisionName)
+				o.setWorkloadName(wl, compName)
 				o.setWorkloadLables(wl, commonLables)
 				o.setAnnotations(wl)
 				o.setNamespace(wl)
@@ -121,9 +127,10 @@ func (o *Options) assemble() error {
 				break
 			}
 		}
-		o.AssembledTraits[compName] = make([]*unstructured.Unstructured, 0, len(acc.Traits))
+
+		o.AssembledTraits[compName] = make([]*unstructured.Unstructured, len(acc.Traits))
 		for i, compTrait := range acc.Traits {
-			trait, err := convertRawExtension2Unstructured(&compTrait.Trait)
+			trait, err := util.RawExtension2Unstructured(&compTrait.Trait)
 			if err != nil {
 				return errors.WithMessagef(err, "cannot convert raw trait in component %q", compName)
 			}
@@ -139,7 +146,10 @@ func (o *Options) assemble() error {
 			o.AssembledTraits[compName][i] = trait
 		}
 
-		// TODO handle scopes
+		o.ReferencedScopes[compName] = make([]runtimev1alpha1.TypedReference, len(acc.Scopes))
+		for i, scope := range acc.Scopes {
+			o.ReferencedScopes[compName][i] = scope.ScopeReference
+		}
 	}
 	return nil
 }
@@ -153,20 +163,18 @@ func (o *Options) complete() {
 		comp, _ := convertRawExtention2Component(rawComp.Raw)
 		o.Comps[i] = comp
 	}
-	o.AppName = o.AppRevision.Spec.Application.Name
-	o.AppNamespace = o.AppRevision.Spec.Application.Namespace
-	o.AppLables = o.AppRevision.Spec.Application.Labels
-	o.AppAnnotations = o.AppRevision.Spec.Application.Annotations
-
-	for _, owner := range o.AppRevision.GetOwnerReferences() {
-		if owner.APIVersion == v1beta1.SchemeGroupVersion.String() && owner.Kind == v1beta1.ApplicationKind {
-			o.AppOwnerRef = owner.DeepCopy()
-			break
-		}
-	}
+	// Application entity in the ApplicationRevision has no metadata,
+	// so we have to get below information from AppConfig.
+	// Up-stream process must set these to AppConfig.
+	o.AppName = o.AppConfig.GetName()
+	o.AppNamespace = o.AppConfig.GetNamespace()
+	o.AppLables = o.AppConfig.GetLabels()
+	o.AppAnnotations = o.AppConfig.GetAnnotations()
+	o.AppOwnerRef = metav1.GetControllerOf(o.AppConfig)
 
 	o.AssembledWorkloads = make(map[string]*unstructured.Unstructured)
 	o.AssembledTraits = make(map[string][]*unstructured.Unstructured)
+	o.ReferencedScopes = make(map[string][]runtimev1alpha1.TypedReference)
 }
 
 // AssembleOptions is highly coulped with AppRevision, should check the AppRevision provides all info
@@ -181,10 +189,10 @@ func (o *Options) validate() error {
 	return nil
 }
 
-func (o *Options) setWorkloadName(wl *unstructured.Unstructured, compRevisionName string) {
-	// use component revision name as workload
+func (o *Options) setWorkloadName(wl *unstructured.Unstructured, compName string) {
+	// use component name as workload name
 	// override the name set in render phase if exist
-	wl.SetName(compRevisionName)
+	wl.SetName(compName)
 }
 
 func (o *Options) setTraitName(trait *unstructured.Unstructured, compName, traitType string, compTrait *v1alpha2.ComponentTrait) {

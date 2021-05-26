@@ -19,7 +19,6 @@ package assemble
 import (
 	"encoding/json"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1alpha2"
@@ -48,16 +47,4 @@ func convertRawExtention2Component(raw runtime.RawExtension) (*v1alpha2.Componen
 		return nil, err
 	}
 	return obj, nil
-}
-
-// RawExtension2Unstructured converts a rawExtension to an unstructured struct
-func convertRawExtension2Unstructured(raw *runtime.RawExtension) (*unstructured.Unstructured, error) {
-	var objMap map[string]interface{}
-	err := json.Unmarshal(raw.Raw, &objMap)
-	if err != nil {
-		return nil, err
-	}
-	return &unstructured.Unstructured{
-		Object: objMap,
-	}, nil
 }

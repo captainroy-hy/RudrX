@@ -35,6 +35,7 @@ import (
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1alpha2"
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
 	helmapi "github.com/oam-dev/kubevela/pkg/appfile/helm/flux2apis"
+	"github.com/oam-dev/kubevela/pkg/oam"
 	"github.com/oam-dev/kubevela/pkg/oam/util"
 )
 
@@ -50,68 +51,66 @@ func (fn WorkloadOptionFn) ApplyToWorkload(wl *unstructured.Unstructured, comp *
 // try to get it from K8s cluster.
 // If not found, block down-streaming process until Helm creates the workload successfully.
 func DiscoveryHelmBasedWorkload(ctx context.Context, c client.Reader) WorkloadOption {
-	return WorkloadOptionFn(func(assembledWorkload *unstructured.Unstructured, comp *v1alpha2.Component, compDefinition *v1beta1.ComponentDefinition) error {
-		if comp == nil || comp.Spec.Helm == nil {
-			return nil
-		}
-
-		ns := assembledWorkload.GetNamespace()
-		rls, err := util.RawExtension2Unstructured(&comp.Spec.Helm.Release)
-		if err != nil {
-			return errors.Wrap(err, "cannot get helm release from component")
-		}
-		rlsName := rls.GetName()
-
-		chartName, ok, err := unstructured.NestedString(rls.Object, helmapi.HelmChartNamePath...)
-		if err != nil || !ok {
-			return errors.New("cannot get helm chart name")
-		}
-
-		// qualifiedFullName is used as the name of target workload.
-		// It strictly follows the convention that Helm generate default full name as below:
-		// > We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
-		// > If release name contains chart name it will be used as a full name.
-		qualifiedWorkloadName := rlsName
-		if !strings.Contains(rlsName, chartName) {
-			qualifiedWorkloadName = fmt.Sprintf("%s-%s", rlsName, chartName)
-			if len(qualifiedWorkloadName) > 63 {
-				qualifiedWorkloadName = strings.TrimSuffix(qualifiedWorkloadName[:63], "-")
-			}
-		}
-
-		workloadByHelm := &unstructured.Unstructured{}
-		if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: qualifiedWorkloadName}, workloadByHelm); err != nil {
-			return err
-		}
-
-		// check it's created by helm and match the release info
-		annots := workloadByHelm.GetAnnotations()
-		labels := workloadByHelm.GetLabels()
-		if annots == nil || labels == nil ||
-			annots["meta.helm.sh/release-name"] != rlsName ||
-			annots["meta.helm.sh/release-namespace"] != ns ||
-			labels["app.kubernetes.io/managed-by"] != "Helm" {
-			err := fmt.Errorf("the workload is found but not match with helm info(meta.helm.sh/release-name: %s, meta.helm.sh/namespace: %s, app.kubernetes.io/managed-by: Helm)", rlsName, ns)
-			klog.ErrorS(err, "Found a name-matched workload but not managed by Helm", "name", qualifiedWorkloadName,
-				"annotations", annots, "labels", labels)
-			return err
-		}
-		assembledWorkload.SetName(qualifiedWorkloadName)
-		return nil
+	return WorkloadOptionFn(func(assembledWorkload *unstructured.Unstructured, comp *v1alpha2.Component, _ *v1beta1.ComponentDefinition) error {
+		return discoverHelmModuleWorkload(ctx, c, assembledWorkload, comp)
 	})
 }
 
-// NameInplaceUpgradableWorkload set workload name with component name to override  component revision name.
-// We hard code the behavior depends on the workload group/kind for now the only in-place upgradable resources we
-// support is cloneset/statefulset, we can easily add more later.
-func NameInplaceUpgradableWorkload() WorkloadOption {
-	return WorkloadOptionFn(func(wl *unstructured.Unstructured, comp *v1alpha2.Component, _ *v1beta1.ComponentDefinition) error {
-		if wl.GroupVersionKind().Group == kruisev1alpha1.GroupVersion.Group {
-			if wl.GetKind() == reflect.TypeOf(kruisev1alpha1.CloneSet{}).Name() ||
-				wl.GetKind() == reflect.TypeOf(kruisev1alpha1.StatefulSet{}).Name() {
-				wl.SetName(comp.GetName())
-			}
+func discoverHelmModuleWorkload(ctx context.Context, c client.Reader, assembledWorkload *unstructured.Unstructured, comp *v1alpha2.Component) error {
+	if comp == nil || comp.Spec.Helm == nil {
+		return nil
+	}
+
+	ns := assembledWorkload.GetNamespace()
+	rls, err := util.RawExtension2Unstructured(&comp.Spec.Helm.Release)
+	if err != nil {
+		return errors.Wrap(err, "cannot get helm release from component")
+	}
+	rlsName := rls.GetName()
+
+	chartName, ok, err := unstructured.NestedString(rls.Object, helmapi.HelmChartNamePath...)
+	if err != nil || !ok {
+		return errors.New("cannot get helm chart name")
+	}
+
+	// qualifiedFullName is used as the name of target workload.
+	// It strictly follows the convention that Helm generate default full name as below:
+	// > We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
+	// > If release name contains chart name it will be used as a full name.
+	qualifiedWorkloadName := rlsName
+	if !strings.Contains(rlsName, chartName) {
+		qualifiedWorkloadName = fmt.Sprintf("%s-%s", rlsName, chartName)
+		if len(qualifiedWorkloadName) > 63 {
+			qualifiedWorkloadName = strings.TrimSuffix(qualifiedWorkloadName[:63], "-")
 		}
+	}
+
+	workloadByHelm := &unstructured.Unstructured{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: qualifiedWorkloadName}, workloadByHelm); err != nil {
+		return err
+	}
+
+	// check it's created by helm and match the release info
+	annots := workloadByHelm.GetAnnotations()
+	labels := workloadByHelm.GetLabels()
+	if annots == nil || labels == nil ||
+		annots["meta.helm.sh/release-name"] != rlsName ||
+		annots["meta.helm.sh/release-namespace"] != ns ||
+		labels["app.kubernetes.io/managed-by"] != "Helm" {
+		err := fmt.Errorf("the workload is found but not match with helm info(meta.helm.sh/release-name: %s, meta.helm.sh/namespace: %s, app.kubernetes.io/managed-by: Helm)", rlsName, ns)
+		klog.ErrorS(err, "Found a name-matched workload but not managed by Helm", "name", qualifiedWorkloadName,
+			"annotations", annots, "labels", labels)
+		return err
+	}
+	*assembledWorkload = *workloadByHelm
+	return nil
+}
+
+// NameNonInplaceUpgradableWorkload set workload name with component revision name to override component name.
+func NameNonInplaceUpgradableWorkload() WorkloadOption {
+	return WorkloadOptionFn(func(wl *unstructured.Unstructured, comp *v1alpha2.Component, _ *v1beta1.ComponentDefinition) error {
+		compRevName := wl.GetLabels()[oam.LabelAppComponentRevision]
+		wl.SetName(compRevName)
 		return nil
 	})
 }
@@ -120,7 +119,7 @@ func NameInplaceUpgradableWorkload() WorkloadOption {
 // as disabled so that it's spec won't take effect immediately. The rollout controller can take over the resources
 // and enable it on its own since app controller here won't override their change
 func PrepareWorkloadForRollout() WorkloadOption {
-	return WorkloadOptionFn(func(assembledWorkload *unstructured.Unstructured, comp *v1alpha2.Component, _ *v1beta1.ComponentDefinition) error {
+	return WorkloadOptionFn(func(assembledWorkload *unstructured.Unstructured, _ *v1alpha2.Component, _ *v1beta1.ComponentDefinition) error {
 		const (
 			// below are the resources that we know how to disable
 			cloneSetDisablePath            = "spec.updateStrategy.paused"
