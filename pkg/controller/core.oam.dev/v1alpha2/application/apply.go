@@ -324,11 +324,18 @@ func (h *appHandler) statusAggregate(appFile *appfile.Appfile) ([]common.Applica
 func (h *appHandler) createOrUpdateComponent(ctx context.Context, comp *v1alpha2.Component) (string, error) {
 	curComp := v1alpha2.Component{}
 	var preRevisionName, curRevisionName string
+	var preRevisionHash, curRevisionHash string
 	compName := comp.GetName()
 	compNameSpace := comp.GetNamespace()
 	compKey := ctypes.NamespacedName{Name: compName, Namespace: compNameSpace}
 
-	err := h.r.Get(ctx, compKey, &curComp)
+	curRevisionHash, err := utils.CalculateComponentRevisionHash(&comp.DeepCopy().Spec)
+	if err != nil {
+		return "", errors.WithMessagef(err, "cannot calculate component %q revision hash", compName)
+	}
+	oamutil.AddLabels(comp, map[string]string{oam.LabelComponentRevisionHash: curRevisionHash})
+
+	err = h.r.Get(ctx, compKey, &curComp)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return "", err
@@ -338,6 +345,7 @@ func (h *appHandler) createOrUpdateComponent(ctx context.Context, comp *v1alpha2
 		}
 		h.logger.Info("Created a new component", "component name", comp.GetName())
 	} else {
+		preRevisionHash = curComp.GetLabels()[oam.LabelComponentRevisionHash]
 		// remember the revision if there is a previous component
 		if curComp.Status.LatestRevision != nil {
 			preRevisionName = curComp.Status.LatestRevision.Name
@@ -348,6 +356,17 @@ func (h *appHandler) createOrUpdateComponent(ctx context.Context, comp *v1alpha2
 		}
 		h.logger.Info("Updated a component", "component name", comp.GetName())
 	}
+	if preRevisionHash == curRevisionHash {
+		return preRevisionName, nil
+	}
+	preRevisionNum, err := utils.ExtractRevision(preRevisionName)
+	if err != nil {
+		return "", err
+	}
+	curRevisionName = utils.ConstructRevisionName(compName, int64(preRevisionNum)+1)
+
+	// TODO(roywang) remove below logics while removing AppContext
+
 	// remove the object from the raw extension before we can compare with the existing componentRevision whose
 	// object is persisted as Raw data after going through api server
 	updatedComp := comp.DeepCopy()

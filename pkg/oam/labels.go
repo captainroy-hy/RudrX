@@ -33,6 +33,8 @@ const (
 	LabelOAMResourceType = "app.oam.dev/resourceType"
 	// LabelAppRevisionHash records the Hash value of the application revision
 	LabelAppRevisionHash = "app.oam.dev/app-revision-hash"
+	// LabelComponentRevisionHash records the Hash value of the component revision
+	LabelComponentRevisionHash = "app.oam.dev/comp-revision-hash"
 
 	// WorkloadTypeLabel indicates the type of the workloadDefinition
 	WorkloadTypeLabel = "workload.oam.dev/type"

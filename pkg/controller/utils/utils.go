@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -215,6 +214,27 @@ func ExtractRevision(revisionName string) (int, error) {
 	return strconv.Atoi(strings.TrimPrefix(splits[len(splits)-1], "v"))
 }
 
+// CalculateComponentRevisionHash calculate hash value used to identify a component revision
+func CalculateComponentRevisionHash(compSpec *v1alpha2.ComponentSpec) (string, error) {
+	wl, err := util.RawExtension2Unstructured(&compSpec.Workload)
+	if err != nil {
+		return "", err
+	}
+	// these labels are possible to be propogated from application to workload
+	// component revision should not take these into account
+	util.RemoveLabels(wl, []string{
+		oam.LabelAppName,
+		oam.LabelAppRevision,
+		oam.LabelAppRevisionHash,
+	})
+	v, err := hashstructure.Hash(wl, hashstructure.FormatV2, nil)
+	if err != nil {
+		return "", err
+	}
+	revisionHash := strconv.FormatUint(v, 16)
+	return revisionHash, nil
+}
+
 // CompareWithRevision compares a component's spec with the component's latest revision content
 func CompareWithRevision(ctx context.Context, c client.Client, logger logging.Logger, componentName, nameSpace,
 	latestRevision string, curCompSpec *v1alpha2.ComponentSpec) (bool, error) {
@@ -238,7 +258,15 @@ func CompareWithRevision(ctx context.Context, c client.Client, logger logging.Lo
 			latestRevision, err), "componentName", componentName)
 		return true, err
 	}
-	if reflect.DeepEqual(curCompSpec, &oldComp.Spec) {
+	curHash, err := CalculateComponentRevisionHash(curCompSpec)
+	if err != nil {
+		return true, err
+	}
+	preHash, err := CalculateComponentRevisionHash(&oldComp.Spec)
+	if err != nil {
+		return true, err
+	}
+	if curHash != preHash {
 		// no need to create a new revision
 		return false, nil
 	}
