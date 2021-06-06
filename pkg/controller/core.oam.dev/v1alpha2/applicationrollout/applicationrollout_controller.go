@@ -18,13 +18,13 @@ package applicationrollout
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/meta"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
@@ -32,13 +32,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	oamv1alpha2 "github.com/oam-dev/kubevela/apis/core.oam.dev/v1alpha2"
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
 	"github.com/oam-dev/kubevela/apis/standard.oam.dev/v1alpha1"
-	"github.com/oam-dev/kubevela/apis/types"
 	"github.com/oam-dev/kubevela/pkg/controller/common/rollout"
 	controller "github.com/oam-dev/kubevela/pkg/controller/core.oam.dev"
-	"github.com/oam-dev/kubevela/pkg/oam"
+	"github.com/oam-dev/kubevela/pkg/controller/core.oam.dev/v1alpha2/application/dispatch"
 	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	oamutil "github.com/oam-dev/kubevela/pkg/oam/util"
 )
@@ -145,82 +143,67 @@ func (r *Reconciler) DoReconcile(ctx context.Context, appRollout *v1beta1.AppRol
 		appRollout.Status.StateTransition(v1alpha1.RollingModifiedEvent)
 	}
 
-	// Get the source application first
-	var sourceApRev, targetAppRev *oamv1alpha2.ApplicationRevision
-	var sourceApp, targetApp *oamv1alpha2.ApplicationContext
+	var sourceAppRev, targetAppRev *v1beta1.ApplicationRevision
+	var sourceWorkload, targetWorkload *unstructured.Unstructured
 	var err error
 
 	if appRollout.Status.RollingState == v1alpha1.RolloutDeletingState {
 		if sourceAppRevisionName == "" {
 			klog.InfoS("source app fields not filled, this is a scale operation", "appRollout", klog.KRef(appRollout.Namespace, appRollout.Name))
 		} else {
-			sourceApRev, sourceApp, err = r.getSourceAppContexts(ctx,
-				appRollout.Spec.ComponentList, appRollout.Status.RollingState, sourceAppRevisionName)
+			sourceAppRev, err = r.getAppRevision(ctx, sourceAppRevisionName)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
 		}
-		// Get the
-		targetAppRev, targetApp, err = r.getTargetApps(ctx, appRollout.Spec.ComponentList,
-			appRollout.Status.RollingState, targetAppRevisionName)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, err
-		}
-		if sourceApp == nil && targetApp == nil {
-			klog.InfoS("Both the target and the source app are gone", "appRollout",
-				klog.KRef(appRollout.Namespace, appRollout.Name), "rolling state", appRollout.Status.RollingState)
-			appRollout.Status.StateTransition(v1alpha1.RollingFinalizedEvent)
-			// update the appRollout status
-			return ctrl.Result{}, nil
-		}
-	} else {
-		// TODO: try to refactor this into a method with reasonable number of parameters and output
-		if sourceAppRevisionName == "" {
-			klog.Info("source app fields not filled, this is a scale operation")
-		} else {
-			sourceApRev, sourceApp, err = r.getSourceAppContexts(ctx,
-				appRollout.Spec.ComponentList, appRollout.Status.RollingState, sourceAppRevisionName)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			// check if the app is templated
-			if sourceApp.Status.RollingStatus != types.RollingTemplated {
-				klog.Info("source app revision is not ready for rolling yet", "application revision", sourceAppRevisionName)
-				r.record.Event(appRollout, event.Normal("Rollout Paused",
-					"source app revision is not ready for rolling yet", "application revision", sourceApp.GetName()))
-				return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
-			}
-		}
-
-		// Get the target application revision after the source app is templated
-		targetAppRev, targetApp, err = r.getTargetApps(ctx, appRollout.Spec.ComponentList,
-			appRollout.Status.RollingState, targetAppRevisionName)
+		targetAppRev, err = r.getAppRevision(ctx, targetAppRevisionName)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		// this ensures that we handle the target app init only once
-		appRollout.Status.StateTransition(v1alpha1.AppLocatedEvent)
 
-		// check if the app is templated
-		if targetApp.Status.RollingStatus != types.RollingTemplated {
-			r.record.Event(appRollout, event.Normal("Rollout Paused",
-				"target app revision is not ready for rolling yet", "application revision", targetApp.GetName()))
-			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
+		// TODO check resource trackers are gone
+		// if sourceApp == nil && targetApp == nil {
+		// if true {
+		//     klog.InfoS("Both the target and the source app are gone", "appRollout",
+		//         klog.KRef(appRollout.Namespace, appRollout.Name), "rolling state", appRollout.Status.RollingState)
+		//     appRollout.Status.StateTransition(v1alpha1.RollingFinalizedEvent)
+		//     // update the appRollout status
+		//     return ctrl.Result{}, nil
+		// }
+	} else {
+		if sourceAppRevisionName == "" {
+			klog.Info("source app fields not filled, this is a scale operation")
+		} else {
+			sourceAppRev, err = r.getAppRevision(ctx, sourceAppRevisionName)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if appRollout.Status.RollingState == v1alpha1.LocatingTargetAppState &&
+				sourceAppRev != nil {
+				if err := r.emitAppRevisionForRollout(ctx, sourceAppRev, nil); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+		}
+		targetAppRev, err = r.getAppRevision(ctx, targetAppRevisionName)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if appRollout.Status.RollingState == v1alpha1.LocatingTargetAppState {
+			if err := r.emitAppRevisionForRollout(ctx, targetAppRev, sourceAppRev); err != nil {
+				return ctrl.Result{}, err
+			}
+			appRollout.Status.StateTransition(v1alpha1.AppLocatedEvent)
 		}
 	}
 
-	// we get the real workloads from the spec of the revisions
-	targetWorkload, sourceWorkload, err := r.extractWorkloads(ctx, appRollout.Spec.ComponentList, targetAppRev, sourceApRev)
-	if err != nil {
-		klog.ErrorS(err, "cannot fetch the workloads to upgrade", "target application",
-			klog.KRef(appRollout.Namespace, targetAppRevisionName), "source application", klog.KRef(appRollout.Namespace, sourceAppRevisionName),
-			"commonComponent", appRollout.Spec.ComponentList)
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
-	}
-	klog.InfoS("get the target workload we need to work on", "targetWorkload", klog.KObj(targetWorkload))
-	if sourceWorkload != nil {
+	if sourceAppRev != nil {
+		sourceWorkload, _ = getWorkload(sourceAppRev)
 		klog.InfoS("get the source workload we need to work on", "sourceWorkload", klog.KObj(sourceWorkload))
 	}
+	targetWorkload, _ = getWorkload(targetAppRev)
+	klog.InfoS("get the target workload we need to work on", "targetWorkload", klog.KObj(targetWorkload))
+
 	// reconcile the rollout part of the spec given the target and source workload
 	rolloutPlanController := rollout.NewRolloutPlanController(r, appRollout, r.record,
 		&appRollout.Spec.RolloutPlan, &appRollout.Status.RolloutStatus, targetWorkload, sourceWorkload)
@@ -235,7 +218,7 @@ func (r *Reconciler) DoReconcile(ctx context.Context, appRollout *v1beta1.AppRol
 	if rolloutStatus.RollingState == v1alpha1.RolloutSucceedState {
 		klog.InfoS("rollout succeeded, record the source and target app revision", "source", sourceAppRevisionName,
 			"target", targetAppRevisionName)
-		if err = r.finalizeRollingSucceeded(ctx, sourceApp, targetApp); err != nil {
+		if err = r.finalizeRollingSucceeded(ctx, sourceAppRev, targetAppRev); err != nil {
 			return ctrl.Result{}, err
 		}
 	} else if rolloutStatus.RollingState == v1alpha1.RolloutFailedState {
@@ -302,24 +285,19 @@ func (r *Reconciler) handleRollingTerminated(appRollout v1beta1.AppRollout, targ
 	return false
 }
 
-func (r *Reconciler) finalizeRollingSucceeded(ctx context.Context, sourceApp *oamv1alpha2.ApplicationContext,
-	targetApp *oamv1alpha2.ApplicationContext) error {
-	if sourceApp != nil {
-		// mark the source app as an application revision only so that it stop being reconciled
-		oamutil.RemoveAnnotations(sourceApp, []string{oam.AnnotationAppRollout})
-		oamutil.AddAnnotations(sourceApp, map[string]string{oam.AnnotationAppRevision: strconv.FormatBool(true)})
-		if err := r.Update(ctx, sourceApp); err != nil {
-			klog.ErrorS(err, "cannot add the app revision annotation", "source application",
-				klog.KRef(sourceApp.Namespace, sourceApp.GetName()))
-			return err
-		}
-	}
-	// remove the rollout annotation so that the target appConfig controller can take over the rest of the work
-	oamutil.RemoveAnnotations(targetApp, []string{oam.AnnotationAppRollout, oam.AnnotationRollingComponent})
-	if err := r.Update(ctx, targetApp); err != nil {
-		klog.ErrorS(err, "cannot remove the rollout annotation", "target application",
-			klog.KRef(targetApp.Namespace, targetApp.GetName()))
+func (r *Reconciler) finalizeRollingSucceeded(ctx context.Context, sourceAppRev, targetAppRev *v1beta1.ApplicationRevision) error {
+	m, err := getAssembledManifests(targetAppRev, false)
+	if err != nil {
 		return err
+	}
+	d := dispatch.NewAppManifestsDispatcher(r.Client, targetAppRev)
+	if sourceAppRev != nil {
+		rt := &v1beta1.ResourceTracker{}
+		rt.SetName(dispatch.ConstructResourceTrackerName(sourceAppRev.Name, sourceAppRev.Namespace))
+		d = d.EnableGC(rt)
+	}
+	if _, err := d.Dispatch(ctx, m); err != nil {
+		return errors.WithMessage(err, "cannot garbage collect source app revision")
 	}
 	return nil
 }

@@ -109,6 +109,18 @@ func discoverHelmModuleWorkload(ctx context.Context, c client.Reader, assembledW
 // NameNonInplaceUpgradableWorkload set workload name with component revision name to override component name.
 func NameNonInplaceUpgradableWorkload() WorkloadOption {
 	return WorkloadOptionFn(func(wl *unstructured.Unstructured, comp *v1alpha2.Component, _ *v1beta1.ComponentDefinition) error {
+		// we hard code the behavior depends on the workload group/kind for now.
+		// The only in-place upgradable resources we support is cloneset/statefulset for now.
+		// We can easily add more later.
+		if wl.GroupVersionKind().Group == kruisev1alpha1.GroupVersion.Group {
+			if wl.GetKind() == reflect.TypeOf(kruisev1alpha1.CloneSet{}).Name() ||
+				wl.GetKind() == reflect.TypeOf(kruisev1alpha1.StatefulSet{}).Name() {
+				// we use the component name alone for those resources that do support in-place upgrade
+				klog.InfoS("Re-use the component name for resources that support in-place upgrade",
+					"GVK", wl.GroupVersionKind(), "instance name", wl.GetName())
+				return nil
+			}
+		}
 		compRevName := wl.GetLabels()[oam.LabelAppComponentRevision]
 		wl.SetName(compRevName)
 		return nil
