@@ -56,8 +56,19 @@ type HealthScopeStatus struct {
 	// ScopeHealthCondition represents health condition summary of the scope
 	ScopeHealthCondition ScopeHealthCondition `json:"scopeHealthCondition"`
 
+	// AppHealthConditions represents health condition of applications in the scope
+	AppHealthConditions []*AppHealthCondition `json:"appHealthConditions,omitempty"`
+
 	// WorkloadHealthConditions represents health condition of workloads in the scope
+	// Use AppHealthConditions to provide app level status
+	// +deprecated
 	WorkloadHealthConditions []*WorkloadHealthCondition `json:"healthConditions,omitempty"`
+}
+
+// AppHealthCondition represents health condition of an application
+type AppHealthCondition struct {
+	Name       string                     `json:"name"`
+	Components []*WorkloadHealthCondition `json:"components,omitempty"`
 }
 
 // ScopeHealthCondition represents health condition summary of a scope.
@@ -69,7 +80,7 @@ type ScopeHealthCondition struct {
 	UnknownWorkloads   int64        `json:"unknownWorkloads,omitempty"`
 }
 
-// WorkloadHealthCondition represents informative health condition.
+// WorkloadHealthCondition represents informative health condition of a workload.
 type WorkloadHealthCondition struct {
 	// ComponentName represents the component name if target is a workload
 	ComponentName  string                         `json:"componentName,omitempty"`
@@ -77,7 +88,18 @@ type WorkloadHealthCondition struct {
 	HealthStatus   HealthStatus                   `json:"healthStatus"`
 	Diagnosis      string                         `json:"diagnosis,omitempty"`
 	// WorkloadStatus represents status of workloads whose HealthStatus is UNKNOWN.
-	WorkloadStatus string `json:"workloadStatus,omitempty"`
+	WorkloadStatus  string                  `json:"workloadStatus,omitempty"`
+	CustomStatusMsg string                  `json:"customStatusMsg,omitempty"`
+	Traits          []*TraitHealthCondition `json:"traits,omitempty"`
+}
+
+// TraitHealthCondition represents informative health condition of a trait.
+type TraitHealthCondition struct {
+	Type            string       `json:"type"`
+	Resource        string       `json:"resource"`
+	HealthStatus    HealthStatus `json:"healthStatus"`
+	Diagnosis       string       `json:"diagnosis,omitempty"`
+	CustomStatusMsg string       `json:"customStatusMsg,omitempty"`
 }
 
 // +kubebuilder:object:root=true
